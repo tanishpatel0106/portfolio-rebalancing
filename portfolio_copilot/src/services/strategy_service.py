@@ -8,7 +8,10 @@ from ..strategy.signals import moving_average_crossover, rsi_signal
 
 
 def generate_signals(price_df: pd.DataFrame, strategy: str, params: dict) -> pd.DataFrame:
-    close = price_df["close"]
+    if "date" in price_df.columns:
+        close = price_df.set_index("date")["close"]
+    else:
+        close = price_df["close"]
     if strategy == "MA Crossover":
         return moving_average_crossover(close, params["ma_fast"], params["ma_slow"])
     if strategy == "RSI Mean Reversion":
@@ -21,7 +24,10 @@ def run_backtest(price_df: pd.DataFrame, signals: pd.DataFrame, execution_price:
     merged = merged.set_index("date")
     if signals.empty:
         return {"equity": pd.DataFrame(), "trades": pd.DataFrame(), "metrics": {}}
-    merged = merged.join(signals)
+    aligned_signals = signals.copy()
+    if not aligned_signals.index.equals(merged.index):
+        aligned_signals = aligned_signals.reindex(merged.index)
+    merged = merged.join(aligned_signals)
     equity, trades = backtest_signals(merged, execution_price=execution_price, transaction_cost_bps=cost_bps)
     metrics = compute_backtest_metrics(equity["strategy_return"], trades)
     return {"equity": equity, "trades": trades, "metrics": metrics}
