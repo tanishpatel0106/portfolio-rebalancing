@@ -40,7 +40,7 @@ if col1.button("Save Portfolio", type="primary", disabled=not valid):
 
 if col2.button("Load Sample"):
     editable_df = pd.DataFrame(DEFAULT_PORTFOLIO["holdings"], columns=HOLDINGS_COLUMNS)
-    st.experimental_rerun()
+    st.rerun()
 
 if col3.button("Delete Portfolio", disabled=selected == "<new>"):
     delete_portfolio(selected)

@@ -5,6 +5,7 @@ import pandas as pd
 
 
 def moving_average_crossover(close: pd.Series, fast: int, slow: int) -> pd.DataFrame:
+    close = close.squeeze()
     if close.empty:
         return pd.DataFrame(columns=["signal", "fast_ma", "slow_ma", "confidence"])
     fast_ma = close.rolling(fast).mean()
@@ -16,6 +17,7 @@ def moving_average_crossover(close: pd.Series, fast: int, slow: int) -> pd.DataF
 
 
 def rsi_signal(close: pd.Series, window: int, lower: float, upper: float) -> pd.DataFrame:
+    close = close.squeeze()
     if close.empty:
         return pd.DataFrame(columns=["signal", "rsi", "confidence"])
     delta = close.diff()

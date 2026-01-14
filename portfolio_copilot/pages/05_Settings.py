@@ -30,6 +30,6 @@ if col1.button("Save Settings", type="primary"):
 
 if col2.button("Restore Defaults"):
     reset_settings()
-    st.experimental_rerun()
+    st.rerun()
 
 st.caption("Settings include constraints, backtest defaults, and strategy defaults.")
