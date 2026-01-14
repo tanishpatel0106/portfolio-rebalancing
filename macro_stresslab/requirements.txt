@@ -1,0 +1,19 @@
+streamlit==1.41.1
+pandas==2.2.3
+numpy==2.1.3
+scipy==1.14.1
+scikit-learn==1.5.2
+
+yfinance==0.2.52
+requests==2.32.3
+tenacity==9.0.0
+
+plotly==5.24.1
+
+pydantic==2.10.3
+python-dateutil==2.9.0.post0
+
+reportlab==4.2.5
+
+# Optional but useful for local dev/testing
+pytest==8.3.4
