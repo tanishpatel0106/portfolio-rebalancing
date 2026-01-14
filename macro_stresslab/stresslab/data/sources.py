@@ -239,7 +239,8 @@ def yf_download_ohlcv(req: PriceRequest) -> pd.DataFrame:
     retry=retry_if_exception_type((DataError, DataEmptyError, ValueError)),
 )
 def _yf_download_with_retry(req: PriceRequest) -> pd.DataFrame:
-    \"\"\"Download with retry/backoff to improve resiliency.\"\"\"\n+    df = yf.download(
+    """Download with retry/backoff to improve resiliency."""
+    df = yf.download(
         req.ticker,
         start=req.start,
         end=req.end,
@@ -247,7 +248,7 @@ def _yf_download_with_retry(req: PriceRequest) -> pd.DataFrame:
         auto_adjust=req.auto_adjust,
         actions=req.actions,
         progress=False,
-        group_by=\"column\",
+        group_by="column",
         threads=True,
     )
     return df
