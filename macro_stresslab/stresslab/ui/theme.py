@@ -2,6 +2,8 @@
 from __future__ import annotations
 import streamlit as st
 
+from stresslab.ui import styles
+
 DARK_CSS = """
 <style>
 /* App background */
@@ -90,5 +92,14 @@ div[data-testid="stMetric"] {
 """
 
 def apply_dark_theme() -> None:
-    """Injects global CSS for the StressLab UI system."""
+    """Injects legacy global CSS for the StressLab UI system."""
     st.markdown(DARK_CSS, unsafe_allow_html=True)
+
+
+def apply_theme() -> None:
+    """
+    Apply the primary StressLab theme.
+
+    We keep a thin wrapper so app.py can call a stable function name.
+    """
+    styles.apply_global_styles()
