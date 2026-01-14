@@ -51,10 +51,13 @@ from stresslab.analytics import stress as st
 from stresslab.analytics import regimes as rg
 
 # Optional provider module: your project has stresslab/data/sources.py
-# We import it as optional to keep services usable with direct DataFrame inputs.
-try:
+# We avoid try/except around imports per style rules.
+import importlib.util
+
+_src_spec = importlib.util.find_spec("stresslab.data.sources")
+if _src_spec is not None:
     from stresslab.data import sources as src  # type: ignore
-except Exception:  # pragma: no cover
+else:  # pragma: no cover
     src = None  # type: ignore
 
 
@@ -343,6 +346,14 @@ def build_risk_payload(
 
     rolling = st.rolling_var_series(pr_for_rolling, risk, window=risk.annualization_factor)
 
+    mu, cov = st.sample_mean_cov(
+        base["aligned_returns"],
+        ewma_lambda=risk.ewma_lambda,
+        cov_shrink=risk.cov_shrink,
+    )
+    risk_contrib = st.risk_contributions(cov, base["weights"])
+    var_contrib = st.var_contributions_delta_normal(cov, base["weights"], risk.alpha)
+
     payload: Dict[str, Any] = {
         "returns_df": base["aligned_returns"],
         "assets": base["assets"],
@@ -352,6 +363,8 @@ def build_risk_payload(
         "drawdown": base["drawdown"],
         "metrics": base["metrics"],
         "rolling_var": rolling,
+        "risk_contributions": risk_contrib,
+        "var_contributions": var_contrib,
     }
     return payload
 
