@@ -6,6 +6,8 @@ import streamlit as st
 
 import plotly.graph_objects as go
 
+from stresslab.ui import styles
+
 Formatter = Callable[[Any], str]
 
 @dataclass(frozen=True)
@@ -80,3 +82,53 @@ def plotly_defaults(fig: go.Figure, height: int = 500, title: str | None = None)
     fig.update_xaxes(title=None, showgrid=True, gridcolor="rgba(255,255,255,0.06)")
     fig.update_yaxes(title=None, showgrid=True, gridcolor="rgba(255,255,255,0.06)")
     return fig
+
+
+def render_app_header(title: str, subtitle: str, right_meta: Dict[str, str] | None = None) -> None:
+    pills = None
+    right_top = None
+    right_bottom = None
+    if right_meta:
+        items = list(right_meta.items())
+        if items:
+            right_top = f"{items[0][0]}: {items[0][1]}"
+        if len(items) > 1:
+            right_bottom = f"{items[1][0]}: {items[1][1]}"
+        if len(items) > 2:
+            pills = [f"{k}: {v}" for k, v in items[2:]]
+    styles.page_header(title=title, subtitle=subtitle, right_top=right_top, right_bottom=right_bottom, pills=pills)
+
+
+def render_section_header(title: str, subtitle: str | None = None) -> None:
+    styles.section_header(title=title, subtitle=subtitle)
+
+
+def render_footer(left: str, right: str) -> None:
+    st.markdown(
+        f"""
+        <div style="display:flex; justify-content:space-between; color:#6B7280; font-size:0.8rem; padding-top:1rem;">
+            <span>{left}</span>
+            <span>{right}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def toast_success(message: str) -> None:
+    st.toast(message, icon="✅")
+
+
+def toast_warning(message: str) -> None:
+    st.toast(message, icon="⚠️")
+
+
+def toast_error(message: str) -> None:
+    st.toast(message, icon="❌")
+
+
+def ui_divider(location: str = "main") -> None:
+    if location == "sidebar":
+        st.sidebar.markdown("<hr style='border-color:#1F2937; opacity:0.6;'>", unsafe_allow_html=True)
+    else:
+        st.markdown("<hr style='border-color:#1F2937; opacity:0.6;'>", unsafe_allow_html=True)

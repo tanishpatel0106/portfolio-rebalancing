@@ -28,6 +28,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, Optional, Tuple
 
+import pandas as pd
 import streamlit as st
 
 # ------------------------------------------------------------
@@ -35,8 +36,8 @@ import streamlit as st
 # ------------------------------------------------------------
 # These are intentionally imported at top-level to fail-fast in dev
 # and to ensure we keep a clean dependency graph.
-from ui.theme import apply_theme  # noqa: F401
-from ui.components import (
+from stresslab.ui.theme import apply_theme  # noqa: F401
+from stresslab.ui.components import (
     render_app_header,
     render_footer,
     render_section_header,
@@ -45,8 +46,10 @@ from ui.components import (
     toast_error,
     ui_divider,
 )
-from utils.config import AppConfig, load_config
-from utils.logging import get_logger, log_exception
+from stresslab.utils.config import AppConfig, load_config
+from stresslab.utils.logging import get_logger, log_exception
+from stresslab.app import store
+from stresslab.data import demo
 
 
 # ============================================================
@@ -63,8 +66,8 @@ st.set_page_config(
 # ============================================================
 # 2) Globals
 # ============================================================
-APP_ROOT = Path(__file__).resolve().parent  # stresslab/
-PAGES_DIR = APP_ROOT / "ui" / "pages"
+APP_ROOT = Path(__file__).resolve().parent  # macro_stresslab/
+PAGES_DIR = APP_ROOT / "stresslab" / "ui" / "pages"
 LOGGER = get_logger("stresslab.app")
 
 DEFAULT_ROUTE = "Home"
@@ -210,7 +213,16 @@ def ensure_session_state_defaults(config: AppConfig) -> None:
         # Domain state placeholders
         "active_portfolio_id": None,
         "active_scenario_id": None,
+        "active_dataset_id": None,
         "last_run_id": None,
+        "market_data": None,
+        "market_returns": None,
+        "market_meta": None,
+        "factor_returns": None,
+        "factor_betas": None,
+        "portfolio_cache": None,
+        "run_results": None,
+        "_demo_initialized": False,
         # Cache/compute controls
         "cache_bust": 0,
     }
@@ -218,6 +230,42 @@ def ensure_session_state_defaults(config: AppConfig) -> None:
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
+
+
+def ensure_demo_seed(config: AppConfig) -> None:
+    if st.session_state.get("_demo_initialized", False):
+        return
+
+    portfolios = store.list_portfolios(config.sqlite_path)
+    datasets = store.list_datasets(config.sqlite_path)
+
+    if not portfolios:
+        holdings = demo.demo_holdings()
+        portfolio_id = store.create_portfolio(
+            config.sqlite_path,
+            name="Demo Multi-Asset Portfolio",
+            base_currency="USD",
+            description="Auto-seeded demo portfolio with diversified equities.",
+            holdings=holdings.to_dict(orient="records"),
+        )
+        st.session_state["active_portfolio_id"] = portfolio_id
+
+    if not datasets:
+        prices = demo.demo_prices()
+        dataset_id = store.create_dataset(
+            config.sqlite_path,
+            name="Demo Market Dataset",
+            source="demo",
+            start_date=str(prices.index.min().date()),
+            end_date=str(prices.index.max().date()),
+            frequency=pd.infer_freq(prices.index) or "B",
+            metadata=demo.demo_metadata(prices),
+        )
+        st.session_state["active_dataset_id"] = dataset_id
+        st.session_state["market_data"] = prices
+        st.session_state["market_meta"] = {"source": "demo", "rows": len(prices), "columns": list(prices.columns)}
+
+    st.session_state["_demo_initialized"] = True
 
 
 def enqueue_toast(level: str, message: str) -> None:
@@ -287,56 +335,63 @@ def get_routes() -> Dict[str, Route]:
         "Home": Route(
             key="Home",
             title="Home",
-            page_module="ui.pages.00_Home",
+            page_module="stresslab.ui.pages.home",
             icon="🏠",
             description="Overview, quick actions, recent runs",
         ),
         "Portfolios": Route(
             key="Portfolios",
             title="Portfolios",
-            page_module="ui.pages.01_Portfolios",
+            page_module="stresslab.ui.pages.portfolios",
             icon="💼",
             description="Upload & manage portfolios / holdings",
         ),
         "Scenarios": Route(
             key="Scenarios",
             title="Scenarios",
-            page_module="ui.pages.02_Scenarios",
+            page_module="stresslab.ui.pages.scenarios",
             icon="🧩",
             description="Build and save stress scenarios",
+        ),
+        "Market Data": Route(
+            key="Market Data",
+            title="Market Data",
+            page_module="stresslab.ui.pages.market_data",
+            icon="🗃️",
+            description="Load, validate, and align datasets",
         ),
         "Run Stress": Route(
             key="Run Stress",
             title="Run Stress",
-            page_module="ui.pages.03_Stress_Run",
+            page_module="stresslab.ui.pages.stress_run",
             icon="🧪",
             description="Execute scenarios and compute deltas",
         ),
         "Risk Analytics": Route(
             key="Risk Analytics",
             title="Risk Analytics",
-            page_module="ui.pages.04_Risk_Analytics",
+            page_module="stresslab.ui.pages.risk_analytics",
             icon="📊",
             description="VaR, CVaR, exposures, sensitivities",
         ),
         "Backtests": Route(
             key="Backtests",
             title="Backtests",
-            page_module="ui.pages.05_Backtests",
+            page_module="stresslab.ui.pages.backtests",
             icon="📈",
             description="Strategy backtests & trade logs",
         ),
         "Reports": Route(
             key="Reports",
             title="Reports",
-            page_module="ui.pages.06_Reports",
+            page_module="stresslab.ui.pages.reports",
             icon="🧾",
             description="Generate & export reports; history",
         ),
         "Settings": Route(
             key="Settings",
             title="Settings",
-            page_module="ui.pages.99_Settings",
+            page_module="stresslab.ui.pages.settings",
             icon="⚙️",
             description="App configuration & diagnostics",
         ),
@@ -382,7 +437,51 @@ def render_sidebar(routes: Dict[str, Route], config: AppConfig) -> str:
     ui_divider(location="sidebar")
 
     # Global toggles
+    st.sidebar.markdown("### Active Context")
+    portfolios = store.list_portfolios(config.sqlite_path)
+    portfolio_labels = ["—"] + [f"{p['name']} ({p['portfolio_id']})" for p in portfolios]
+    portfolio_index = 0
+    active_id = st.session_state.get("active_portfolio_id")
+    if active_id:
+        for idx, p in enumerate(portfolios, start=1):
+            if p["portfolio_id"] == active_id:
+                portfolio_index = idx
+                break
+    selected_portfolio = st.sidebar.selectbox(
+        "Active portfolio",
+        options=portfolio_labels,
+        index=portfolio_index,
+    )
+    if selected_portfolio != "—":
+        st.session_state["active_portfolio_id"] = selected_portfolio.split("(")[-1].strip(")")
+    else:
+        st.session_state["active_portfolio_id"] = None
+
+    datasets = store.list_datasets(config.sqlite_path)
+    dataset_labels = ["—"] + [f"{d['name']} ({d['dataset_id']})" for d in datasets]
+    dataset_index = 0
+    active_dataset = st.session_state.get("active_dataset_id")
+    if active_dataset:
+        for idx, d in enumerate(datasets, start=1):
+            if d["dataset_id"] == active_dataset:
+                dataset_index = idx
+                break
+    selected_dataset = st.sidebar.selectbox(
+        "Active dataset",
+        options=dataset_labels,
+        index=dataset_index,
+    )
+    if selected_dataset != "—":
+        st.session_state["active_dataset_id"] = selected_dataset.split("(")[-1].strip(")")
+    else:
+        st.session_state["active_dataset_id"] = None
+
+    ui_divider(location="sidebar")
+
     st.sidebar.markdown("### Global")
+    if st.sidebar.button("⚡ Run Stress Test"):
+        st.session_state["_route"] = "Run Stress"
+        st.rerun()
     debug = st.sidebar.toggle("Debug mode", value=st.session_state.get("_debug", False))
     st.session_state["_debug"] = bool(debug)
 
@@ -438,11 +537,15 @@ def main() -> None:
     # Load config (env-based) — implemented in utils/config.py
     config = load_config()
 
+    # Initialize persistence
+    store.init_db(config.sqlite_path)
+
     # Theme (CSS) applied globally — implemented in ui/theme.py
     apply_theme()
 
     # Session defaults
     ensure_session_state_defaults(config)
+    ensure_demo_seed(config)
 
     # Build context
     ctx = build_context(config)
