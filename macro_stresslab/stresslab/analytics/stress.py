@@ -50,6 +50,7 @@ from typing import Dict, Iterable, List, Literal, Optional, Sequence, Tuple, Uni
 
 import numpy as np
 import pandas as pd
+from scipy.stats import norm
 
 
 # =========================
@@ -184,6 +185,54 @@ def _cov_from_corr(corr: np.ndarray, vol: np.ndarray) -> np.ndarray:
     vol = np.array(vol, dtype=float, copy=False)
     return corr * vol[:, None] * vol[None, :]
 
+
+def risk_contributions(cov: np.ndarray, weights: np.ndarray) -> Dict[str, np.ndarray]:
+    """
+    Risk contributions to portfolio volatility.
+
+    Returns dict with:
+      - marginal: marginal contribution (dVol/dw)
+      - component: component contribution (w_i * marginal_i)
+      - pct: percent contribution to total vol
+      - total_vol
+    """
+    cov = np.array(cov, dtype=float)
+    w = np.array(weights, dtype=float)
+    port_var = float(w.T @ cov @ w)
+    if port_var <= 1e-18:
+        raise ValidationError("Portfolio variance is too small for attribution.")
+    port_vol = float(np.sqrt(port_var))
+    mrc = (cov @ w) / port_vol
+    cc = w * mrc
+    pct = cc / port_vol
+    return {
+        "marginal": mrc,
+        "component": cc,
+        "pct": pct,
+        "total_vol": np.array([port_vol]),
+    }
+
+
+def var_contributions_delta_normal(
+    cov: np.ndarray,
+    weights: np.ndarray,
+    alpha: float,
+) -> Dict[str, np.ndarray]:
+    """
+    Delta-normal VaR contributions (approximate).
+    """
+    alpha = _validate_alpha(alpha)
+    z = float(norm.ppf(1 - alpha))
+    risk = risk_contributions(cov, weights)
+    mrc = risk["marginal"]
+    cc = risk["component"]
+    var_total = z * float(risk["total_vol"][0])
+    return {
+        "marginal_var": mrc * z,
+        "component_var": cc * z,
+        "pct_var": cc / float(risk["total_vol"][0]),
+        "total_var": np.array([var_total]),
+    }
 
 # =========================
 # DATA STRUCTURES

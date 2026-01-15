@@ -27,21 +27,25 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime
+import importlib.util
 from typing import Dict, Iterable, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
-try:
-    import yfinance as yf
-except Exception as e:  # pragma: no cover
-    yf = None
+_yf_spec = importlib.util.find_spec("yfinance")
+if _yf_spec is not None:
+    import yfinance as yf  # type: ignore
+else:  # pragma: no cover
+    yf = None  # type: ignore
 
 # Optional (macro)
-try:
-    from fredapi import Fred
-except Exception:  # pragma: no cover
-    Fred = None
+_fred_spec = importlib.util.find_spec("fredapi")
+if _fred_spec is not None:
+    from fredapi import Fred  # type: ignore
+else:  # pragma: no cover
+    Fred = None  # type: ignore
 
 
 # =========================
@@ -220,8 +224,22 @@ def yf_download_ohlcv(req: PriceRequest) -> pd.DataFrame:
     if req.start >= req.end:
         raise ValidationError("start must be < end.")
 
-    # yfinance download
-    df = yf.download(
+    df = _yf_download_with_retry(req)
+
+    df = _clean_ohlcv(df)
+
+    # FX often has Volume=0; keep it but don't force dropping.
+    return df
+
+
+@retry(
+    reraise=True,
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=6),
+    retry=retry_if_exception_type((DataError, DataEmptyError, ValueError)),
+)
+def _yf_download_with_retry(req: PriceRequest) -> pd.DataFrame:
+    \"\"\"Download with retry/backoff to improve resiliency.\"\"\"\n+    df = yf.download(
         req.ticker,
         start=req.start,
         end=req.end,
@@ -229,13 +247,9 @@ def yf_download_ohlcv(req: PriceRequest) -> pd.DataFrame:
         auto_adjust=req.auto_adjust,
         actions=req.actions,
         progress=False,
-        group_by="column",  # easier: columns are OHLCV
+        group_by=\"column\",
         threads=True,
     )
-
-    df = _clean_ohlcv(df)
-
-    # FX often has Volume=0; keep it but don't force dropping.
     return df
 
 
